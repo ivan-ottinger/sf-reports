@@ -1,0 +1,6 @@
+; $Id$
+name = Salesforce Reports Publishing
+description = Retrieves reports from Salesforce
+core = 6.x
+dependencies[] = salesforce_api
+package = Salesforce

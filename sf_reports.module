@@ -1,0 +1,276 @@
+<?php
+// $Id$
+
+/**
+ * Implementation of hook_perm(). Registers necessary user role permissions.
+ */
+function sf_reports_perm() {
+  return array('view presidents report - public', 'view presidents report - private');
+}
+
+/**
+ * Implementation of hook_menu(). Registers the page where the list of presidents will be displayed.
+ */
+function sf_reports_menu() {
+  $items = array();
+
+  $items['sfreport/presidents'] = array(
+    'title' => t('Presidents'), 
+    'page callback' => 'sf_reports_presidents',
+    'page arguments' => array(2),
+    'access callback' => 'sf_reports_presidents_access',
+    'description' => t('Displays list of presidents in the current year'), 
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_access(). Sets access to the module node.
+ */
+function sf_reports_presidents_access() {
+  return user_access('view presidents report - public') || user_access('view presidents report - private');
+}
+
+/**
+ * Implementation of hook_form().
+ * 
+ * Creates form which enables users to specify database query.  
+ */
+function sf_reports_form($form_state) {
+  
+  // getting default date information based on the current date
+  list ($datefrom, $dateto, $yearfrom) = sf_reports_datespan();
+ 
+  $form['date'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('List settings'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $form['date']['date_from'] = array(
+    '#type' => 'date',
+    '#title' => t('Start date'),
+    '#description' => t('Please specify the start date'),
+    '#default_value' => array('year' => $yearfrom, 'month' => 9, 'day' => 1),
+  );
+   $form['date']['date_to'] = array(
+    '#type' => 'date',
+    '#title' => t('End date'),
+    '#description' => t('Please specify the end date'),
+    '#default_value' => array('year' => ($yearfrom + 1), 'month' => 8, 'day' => 31),
+  );
+  $form['date']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Submit',
+  );
+  
+  return $form;
+}
+
+
+/**
+ * Implementation of hook_submit() for sf_reports_form().
+ *
+ * Handles sf_reports_form($form_state) form submission
+ */
+function sf_reports_form_submit($form, &$form_state) {
+  drupal_set_message(t('The form has been submitted.'));
+  
+  $_SESSION['date_from_s'] = $form_state['values']['date_from'];
+  $_SESSION['date_to_s'] = $form_state['values']['date_to'];
+  $_SESSION['submitted'] = TRUE;
+}
+
+/**
+ * Calculates dates used for database query based on the current server date.
+ * 
+ * @return three-value array 
+ *  $datefrom - string in format YYYY-MM-DD
+ *  $dateto - string in format YYYY-MM-DD
+ *  $yearfrom - int   
+ */
+function sf_reports_datespan() {
+	
+  // Preparing current date                       
+  $year_this = date("Y");
+  $month_this = (int) date("m");            
+                  
+  // Calculating date parameters for query, so the appropriate records
+  // are dispayed to the user.
+  if ($month_this < 9) {
+    $datefrom = ($year_this - 1).'-09-01';
+    $dateto = $year_this.'-08-31';
+    $yearfrom = ($year_this - 1);         
+  }
+  else {
+    $datefrom = $year_this.'-09-01';
+    $dateto = ($year_this + 1).'-08-31';
+    $yearfrom = $year_this;
+  }
+    
+  return array ($datefrom, $dateto, $yearfrom);
+}
+
+
+/**
+ * Implementation of the callback function to $items['sfreport/presidents']
+ * 
+ * This function does all the listing of presidents for the current year/date.  
+ */
+function sf_reports_presidents($html = FALSE) {
+
+  // If requested URL is .../sfreport/presidents/html, set $html to TRUE
+  if ($html === 'html') {
+    $html = TRUE;
+  }
+  else {
+    $html = FALSE;
+  }
+  
+  // if the user has permission to see private list of presidents, set $private to TRUE.
+  if (user_access('view presidents report - private')) {
+    $private = TRUE;
+  }
+  else {
+    $private = FALSE;
+  }
+  
+  // connecting to Salesforce
+  try {
+    $sf = salesforce_api_connect();        
+    
+    if (!$sf) {
+      $link = l('Please verify that you have completed your SalesForce credentials', SALESFORCE_PATH_ADMIN);
+      drupal_set_message(t('Unable to connect to SalesForce. !link', array('!link' => $link)), 'error' );
+      return;
+    }  
+  }
+  catch (Exception $e) {
+    DrupalSalesforce::watchdog(SALESFORCE_LOG_SOME, 'Unable to establish Salesforce connection while issuing describeSObjects API call.', array(), WATCHDOG_ERROR);
+  }
+  
+  // if the form has not been submitted, use the default 
+  // dates returned by sf_reports_datespan()
+  if (!$_SESSION['submitted']) {
+  
+    list ($datefrom, $dateto) = sf_reports_datespan();
+    
+    $_SESSION['date_from_s'] = $datefrom;
+    $_SESSION['date_to_s'] = $dateto;
+  }
+  
+  else { // form has been submitted - process data entered by the user
+    
+    $form_date_from = $_SESSION['date_from_s'];
+    $form_date_to = $_SESSION['date_to_s'];
+  
+    // dates correction for db query (adding leading zeros, ...)
+    $datefrom = $form_date_from['year']."-".str_pad($form_date_from['month'], 2, "0", STR_PAD_LEFT)."-".str_pad($form_date_from['day'], 2, "0", STR_PAD_LEFT);
+    $dateto = $form_date_to['year']."-".str_pad($form_date_to['month'], 2, "0", STR_PAD_LEFT)."-".str_pad($form_date_to['day'], 2, "0", STR_PAD_LEFT);
+    
+    $_SESSION['submitted'] = FALSE;   // unset flag 
+  }       
+  
+  if ($html) {   // if preparing HTML output, add some CSS
+           
+  $css = '<style type="text/css"> 
+            table.sfreport-results-list {
+              font-size: 12px;
+              border-collapse: separate;
+              border-spacing: 4px;
+              
+            } 
+            div.sfreport-table-title {
+              font-size: 13px;
+            }
+          </style>';  
+    
+    $css.= drupal_get_css();
+
+    $output.= $css; 
+  }             
+  
+  if (!$html) {  // if not preparing HTML, show the full form
+    $output.= drupal_get_form('sf_reports_form');
+  }
+                                                                                  
+  // Salesforce query                 
+  $query = "SELECT Id, Contact__c, Contact_name__c, Contact_email__c, Contact_mobile__c, Organisation_name__c, Organisation_email__c, date_end__c, date_start__c, Name FROM Roles_del__c WHERE Name like '%President%' AND Organisation_name__c like '%ORGNAME%' AND date_start__c >= $datefrom AND date_end__c <= $dateto";
+  $result = $sf->client->query($query);
+  
+  if ($result->records[0]->Id == NULL) {  // if there's no result...
+    if ($html) {
+      return 0;
+    }
+    else {
+      drupal_set_message(t('There are no records in the specified time interval.'), 'warning');
+    }
+  }
+  else {  // else, prepare output HTML string
+    
+    $output.= '<div class="sfreport-table-title"><br>Listing presidents between <b>'.$datefrom. '</b> and <b>'.$dateto.'</b>.';
+    
+    if ($html) {
+      global $base_url;
+      $link = $base_url.'/sfreport/presidents';
+      $output.= '<a href="'.$link.'" target="_parent" title="specify list settings">[more]</a>';
+    }
+    $output.='</div>';
+    
+    // Building output table
+    $output.= '<br><table class="sfreport-results-list">
+                 <tr>     
+                   <td><b>Organisation</b></td>
+                   <td><b>Last name, First name</b></td>
+                   <td><b>Start date</b></td>
+                   <td><b>End date</b></td>';
+                 
+                   // Private list of presidents shows email addresses.
+                   if ($private) {
+                     $output.= '<td><b>E-mail</b></td>';
+                     $output.= '<td><b>Phone</b></td>';
+                   }             
+                   else {
+                     $output.= '<td><b>E-mail</b></td>';
+                   }
+                 
+                $output.= '</tr>';          
+    
+    $i = 0; 
+    while (($result->records[$i]->Id != NULL)) {  
+    
+      // @ to [at] change in email addresses 
+      //$result->records[$i]->Organisation_email__c = str_replace('@', ' [at] ', $result->records[$i]->Organisation_email__c);
+      //$result->records[$i]->Contact_email__c = str_replace('@', ' [at] ', $result->records[$i]->Contact_email__c);
+    
+      $output.=
+        '<tr>'.
+          '<td>'.$result->records[$i]->Organisation_name__c .'</td>'.
+          '<td>'.$result->records[$i]->Contact_name__c.'</td>'.
+          '<td>'.$result->records[$i]->date_start__c.'</td>'.
+          '<td>'.$result->records[$i]->date_end__c.'</td>';
+       
+         if ($private) {
+           $output.= '<td>'.$result->records[$i]->Contact_email__c.'</td>';
+           $output.= '<td>'.$result->records[$i]->Contact_mobile__c.'</td>';
+         }                   
+         else {
+           $output.= '<td>'.$result->records[$i]->Organisation_email__c.'</td>';
+         }
+       
+         $output.= '</tr>'; 
+      $i++;
+    }  
+    
+    $output.='</table>';    
+  
+    if ($html) {
+      print ($output);
+      return 0;
+    }       
+  }
+  
+  return $output;
+}
