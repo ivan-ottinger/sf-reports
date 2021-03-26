@@ -32,15 +32,13 @@ If you access the created URL with trailing "/html" like this:
 
   `/sfreport/presidents/html`
   
-  ...then plain HTML is returned instead of themed output. You can use this
-  feature to embed presidents list into any content using iframe.
+  ...then plain HTML is returned instead of themed output. You can use this feature to embed presidents list into any content using iframe.
   
 
 Browsing through the whole database of presidents
 -------------------------------------------------
   
-When you visit `/sfreport/presidents`, the form is displayed. You can specify
-start and end date of president role for database query.
+When you visit `/sfreport/presidents`, the form is displayed. You can specify start and end date of president role for database query.
 
 
 Disclaimer
