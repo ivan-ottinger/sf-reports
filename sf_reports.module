@@ -129,7 +129,7 @@ function sf_reports_presidents($html = FALSE) {
     $html = FALSE;
   }
   
-  // if the user has permission to see private list of presidents, set $private to TRUE.
+  // if the user has the necessary permission to see private list of presidents, set $private to TRUE.
   if (user_access('view presidents report - private')) {
     $private = TRUE;
   }
